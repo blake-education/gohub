@@ -66,14 +66,20 @@ func addHandler(repo, branch, shell string) {
 	uri := branch
 	branch = "refs/heads/" + branch
 	http.HandleFunc("/"+repo+"_"+uri, func(w http.ResponseWriter, r *http.Request) {
+func matchHook(data GithubJson, hook Hook) bool {
+	fullBranch := "refs/heads/" + hook.Branch
+
+	return data.Repository.Name == hook.Repo && (hook.Branch == "*" || data.Ref == fullBranch)
+}
 		payload := r.FormValue("payload")
 		var data GithubJson
 		err := json.Unmarshal([]byte(payload), &data)
 		if err != nil {
 			log.Println(err)
 		}
-		if data.Repository.Name == repo && data.Ref == branch {
-			executeShell(shell)
+
+		if matchHook(data, hook) {
+			executeShell(hook, data, payload)
 		}
 	})
 }
