@@ -84,8 +84,12 @@ func matchHook(data GithubJson, hook Hook) bool {
 	})
 }
 
-func executeShell(shell string) {
-	out, err := exec.Command(shell).Output()
+func executeShell(hook Hook, data GithubJson, payload string) {
+	cmd := exec.Command(hook.Shell, hook.Repo)
+	cmd.Env = []string{"PAYLOAD=" + payload}
+
+	// TODO read stdout / stderr separately
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Fatal(err)
 	}
