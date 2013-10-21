@@ -1,6 +1,7 @@
 package main
 
 import (
+  "bytes"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
@@ -8,7 +9,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+  "time"
 )
+
+const DefaultShellTimeout uint = 600
 
 type Repository struct {
 	Name string
@@ -27,6 +31,7 @@ type Hook struct {
 	Repo   string
 	Branch string
 	Shell  string
+	ShellTimeout  uint
 	Token  string
 }
 
@@ -86,21 +91,63 @@ func addHandler(hook Hook) {
 		}
 
 		if matchHook(data, hook) {
-			executeShell(hook, data, payload)
+      log.Printf("matched repo %s\n", hook.Repo)
+			go executeShell(hook, data, payload)
 		}
 	})
 }
 
 func executeShell(hook Hook, data GithubJson, payload string) {
+  log.Printf("executing shell script %s\n", hook.Shell)
+
+  // shellTimeout or default
+  shellTimeout := hook.ShellTimeout
+  if shellTimeout == 0 {
+    shellTimeout = DefaultShellTimeout
+  }
+
+  // setup the command
 	cmd := exec.Command(hook.Shell, hook.Repo)
 	cmd.Env = []string{"PAYLOAD=" + payload}
+  var output bytes.Buffer
+  cmd.Stdout = &output
+  cmd.Stderr = &output
 
-	// TODO read stdout / stderr separately
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Shell output was: %s\n", out)
+
+  // start it
+  if err := cmd.Start(); err != nil {
+    log.Println("unable to start shell script:", err)
+    return
+  }
+
+
+  // wait in a goroutine
+  donec := make(chan error, 1)
+  go func() {
+          donec <- cmd.Wait()
+  }()
+
+
+  // channel select
+  select {
+  case <-time.After(time.Duration(shellTimeout) * time.Second):
+    cmd.Process.Kill()
+    log.Printf("shell script timed out after %vs", shellTimeout)
+
+  case waitErr := <-donec:
+    // waitErr implies that the script didn't end well
+    if waitErr != nil {
+      if msg, ok := waitErr.(*exec.ExitError); ok {
+        log.Printf("shell script error: %s", msg)
+      } else { // some other kind of worse error
+        log.Fatal(waitErr)
+      }
+    }
+  }
+
+
+	log.Printf("shell script output was:\n%v\n", output.String())
+	log.Println("shell finished")
 }
 
 var (
