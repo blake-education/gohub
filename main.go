@@ -45,11 +45,15 @@ func loadConfig(configFile *string) {
 }
 
 func setLog(logFile *string) {
-	log_handler, err := os.OpenFile(*logFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0777)
-	if err != nil {
-		panic("cannot write log")
+	if "-" == *logFile {
+		log.SetOutput(os.Stdout)
+	} else {
+		log_handler, err := os.OpenFile(*logFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0777)
+		if err != nil {
+			panic("cannot write log")
+		}
+		log.SetOutput(log_handler)
 	}
-	log.SetOutput(log_handler)
 	log.SetFlags(5)
 }
 
