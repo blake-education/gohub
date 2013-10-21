@@ -27,6 +27,7 @@ type Hook struct {
 	Repo   string
 	Branch string
 	Shell  string
+	Token  string
 }
 
 func loadConfig(configFile *string) {
@@ -39,8 +40,8 @@ func loadConfig(configFile *string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for i := 0; i < len(config.Hooks); i++ {
-		addHandler(config.Hooks[i].Repo, config.Hooks[i].Branch, config.Hooks[i].Shell)
+	for _, hook := range config.Hooks {
+		addHandler(hook)
 	}
 }
 
@@ -62,16 +63,22 @@ func startWebserver() {
 	http.ListenAndServe(":"+*port, nil)
 }
 
-func addHandler(repo, branch, shell string) {
-	uri := branch
-	branch = "refs/heads/" + branch
-	http.HandleFunc("/"+repo+"_"+uri, func(w http.ResponseWriter, r *http.Request) {
 func matchHook(data GithubJson, hook Hook) bool {
 	fullBranch := "refs/heads/" + hook.Branch
 
 	return data.Repository.Name == hook.Repo && (hook.Branch == "*" || data.Ref == fullBranch)
 }
+
+func addHandler(hook Hook) {
+	uri := "/" + hook.Repo
+
+	if hook.Token != "" {
+		uri += "/" + hook.Token
+	}
+
+	http.HandleFunc(uri, func(w http.ResponseWriter, r *http.Request) {
 		payload := r.FormValue("payload")
+
 		var data GithubJson
 		err := json.Unmarshal([]byte(payload), &data)
 		if err != nil {
