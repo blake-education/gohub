@@ -21,6 +21,7 @@ type Repository struct {
 type GithubJson struct {
 	Repository Repository
 	Ref        string
+  OriginalPayload string
 }
 
 type Config struct {
@@ -34,6 +35,7 @@ type Hook struct {
 	ShellTimeout  uint
 	Token  string
 }
+
 
 func loadConfig(configFile *string) {
 	var config Config
@@ -81,6 +83,15 @@ func addHandler(hook Hook) {
 		uri += "/" + hook.Token
 	}
 
+  shellJobs := make(chan GithubJson, 1000)
+
+  go func() {
+    for {
+      shellJob := <-shellJobs
+      executeShell(hook, shellJob)
+    }
+  }()
+
 	http.HandleFunc(uri, func(w http.ResponseWriter, r *http.Request) {
 		payload := r.FormValue("payload")
 
@@ -90,14 +101,16 @@ func addHandler(hook Hook) {
 			log.Println(err)
 		}
 
+    data.OriginalPayload = payload
+
 		if matchHook(data, hook) {
       log.Printf("matched repo %s\n", hook.Repo)
-			go executeShell(hook, data, payload)
+      shellJobs <- data
 		}
 	})
 }
 
-func executeShell(hook Hook, data GithubJson, payload string) {
+func executeShell(hook Hook, data GithubJson) {
   log.Printf("executing shell script %s\n", hook.Shell)
 
   // shellTimeout or default
@@ -108,7 +121,7 @@ func executeShell(hook Hook, data GithubJson, payload string) {
 
   // setup the command
 	cmd := exec.Command(hook.Shell, hook.Repo)
-	cmd.Env = []string{"PAYLOAD=" + payload}
+	cmd.Env = []string{"PAYLOAD=" + data.OriginalPayload}
   var output bytes.Buffer
   cmd.Stdout = &output
   cmd.Stderr = &output
