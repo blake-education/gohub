@@ -15,6 +15,8 @@ func CoalescingBufferList(out chan<- GithubJson, matcher ElementMatcher) chan<- 
 		for {
 			outc := out
 			var v GithubJson
+
+			// inspect the buffer
 			n := buf.Len()
 			if n == 0 {
 				// buffer empty: don't try to send on output
@@ -23,9 +25,13 @@ func CoalescingBufferList(out chan<- GithubJson, matcher ElementMatcher) chan<- 
 					return
 				}
 				outc = nil
+
+				// dequeue one
 			} else {
 				v = buf.Front().Value.(GithubJson)
 			}
+
+			// select on the channels
 			select {
 			case e, ok := <-in:
 				if !ok {
