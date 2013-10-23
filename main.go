@@ -1,15 +1,12 @@
 package main
 
 import (
-  "bytes"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
-  "time"
 )
 
 const DefaultShellTimeout uint = 600
@@ -19,9 +16,9 @@ type Repository struct {
 }
 
 type GithubJson struct {
-	Repository Repository
-	Ref        string
-  OriginalPayload string
+	Repository      Repository
+	Ref             string
+	OriginalPayload string
 }
 
 type Config struct {
@@ -29,13 +26,12 @@ type Config struct {
 }
 
 type Hook struct {
-	Repo   string
-	Branch string
-	Shell  string
-	ShellTimeout  uint
-	Token  string
+	Repo         string
+	Branch       string
+	Shell        string
+	ShellTimeout uint
+	Token        string
 }
-
 
 func loadConfig(configFile *string) {
 	var config Config
@@ -67,13 +63,18 @@ func setLog(logFile *string) {
 
 func startWebserver() {
 	log.Println("starting webserver")
-	http.ListenAndServe(":"+*port, nil)
+	log.Fatal(http.ListenAndServe(":"+*port, nil))
 }
 
 func matchHook(data GithubJson, hook Hook) bool {
 	fullBranch := "refs/heads/" + hook.Branch
 
 	return data.Repository.Name == hook.Repo && (hook.Branch == "*" || data.Ref == fullBranch)
+}
+
+func matchGithubJson(a, b GithubJson) bool {
+	log.Println("matcher a == b", a, b)
+	return a.Ref == b.Ref && a.Repository == b.Repository
 }
 
 func addHandler(hook Hook) {
@@ -83,14 +84,19 @@ func addHandler(hook Hook) {
 		uri += "/" + hook.Token
 	}
 
-  shellJobs := make(chan GithubJson, 1000)
+	// this channel gives a stream of unique jobs
+	// that is, if a job is submitted that matches a job already waiting in the queue
+	// it isn't re-added
+	uniqueShellJobs := make(chan GithubJson)
 
-  go func() {
-    for {
-      shellJob := <-shellJobs
-      executeShell(hook, shellJob)
-    }
-  }()
+	shellJobs := CoalescingBufferList(uniqueShellJobs, matchGithubJson)
+
+	// consume from the channel forever
+	go func() {
+		for {
+			ExecuteShell(hook, <-uniqueShellJobs)
+		}
+	}()
 
 	http.HandleFunc(uri, func(w http.ResponseWriter, r *http.Request) {
 		payload := r.FormValue("payload")
@@ -101,15 +107,15 @@ func addHandler(hook Hook) {
 			log.Println(err)
 		}
 
-    data.OriginalPayload = payload
+		data.OriginalPayload = payload
 
+		// the hook matched our criteria, put it on the queue
 		if matchHook(data, hook) {
-      log.Printf("matched repo %s\n", hook.Repo)
-      shellJobs <- data
+			log.Printf("matched repo %s\n", hook.Repo)
+			shellJobs <- data
 		}
 	})
 }
-
 
 var (
 	port       = flag.String("port", "7654", "port to listen on")
