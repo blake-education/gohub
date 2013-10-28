@@ -10,6 +10,8 @@ import (
 )
 
 const DefaultShellTimeout uint = 600
+const DefaultPort string = "7654"
+const DefaultLogFile string = "-"
 
 type Repository struct {
 	Name string
@@ -22,7 +24,9 @@ type GithubJson struct {
 }
 
 type Config struct {
-	Hooks []Hook
+	Hooks   []Hook
+	Port    string
+	LogFile string
 }
 
 type Hook struct {
@@ -33,8 +37,14 @@ type Hook struct {
 	Token        string
 }
 
-func loadConfig(configFile *string) {
-	var config Config
+func loadConfig(configFile *string) Config {
+	config := Config{
+		Port:    DefaultPort,
+		LogFile: DefaultLogFile,
+	}
+
+	flag.Parse()
+
 	configData, err := ioutil.ReadFile(*configFile)
 	if err != nil {
 		log.Fatal(err)
@@ -43,16 +53,25 @@ func loadConfig(configFile *string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, hook := range config.Hooks {
-		addHandler(hook)
+
+	// override from flags
+	if *port != "" {
+		config.Port = *port
 	}
+	if *logFile != "" {
+		config.LogFile = *logFile
+	}
+
+	// TODO validate
+
+	return config
 }
 
-func setLog(logFile *string) {
-	if "-" == *logFile {
+func setLog(logFile string) {
+	if "-" == logFile {
 		log.SetOutput(os.Stdout)
 	} else {
-		log_handler, err := os.OpenFile(*logFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0777)
+		log_handler, err := os.OpenFile(logFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0777)
 		if err != nil {
 			panic("cannot write log")
 		}
@@ -61,9 +80,9 @@ func setLog(logFile *string) {
 	log.SetFlags(5)
 }
 
-func startWebserver() {
-	log.Println("starting webserver")
-	log.Fatal(http.ListenAndServe(":"+*port, nil))
+func startWebserver(port string) {
+	log.Println("starting webserver on port", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
 func matchHook(data GithubJson, hook Hook) bool {
@@ -75,6 +94,12 @@ func matchHook(data GithubJson, hook Hook) bool {
 func matchGithubJson(a, b GithubJson) bool {
 	log.Println("matcher a == b", a, b)
 	return a.Ref == b.Ref && a.Repository == b.Repository
+}
+
+func setupHooks(hooks []Hook) {
+	for _, hook := range hooks {
+		addHandler(hook)
+	}
 }
 
 func addHandler(hook Hook) {
@@ -118,17 +143,14 @@ func addHandler(hook Hook) {
 }
 
 var (
-	port       = flag.String("port", "7654", "port to listen on")
+	port       = flag.String("port", "", "port to listen on")
 	configFile = flag.String("config", "./config.json", "config")
-	logFile    = flag.String("log", "./log", "log file")
+	logFile    = flag.String("log", "", "log file")
 )
 
-func init() {
-	flag.Parse()
-}
-
 func main() {
-	setLog(logFile)
-	loadConfig(configFile)
-	startWebserver()
+	config := loadConfig(configFile)
+	setLog(config.LogFile)
+	setupHooks(config.Hooks)
+	startWebserver(config.Port)
 }
