@@ -6,12 +6,10 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 )
 
 const DefaultShellTimeout uint = 600
 const DefaultPort string = "7654"
-const DefaultLogFile string = "-"
 
 type Repository struct {
 	Name string
@@ -26,7 +24,6 @@ type GithubJson struct {
 type Config struct {
 	Hooks   []Hook
 	Port    string
-	LogFile string
 }
 
 type Hook struct {
@@ -40,7 +37,6 @@ type Hook struct {
 func loadConfig(configFile *string) Config {
 	config := Config{
 		Port:    DefaultPort,
-		LogFile: DefaultLogFile,
 	}
 
 	flag.Parse()
@@ -58,26 +54,10 @@ func loadConfig(configFile *string) Config {
 	if *port != "" {
 		config.Port = *port
 	}
-	if *logFile != "" {
-		config.LogFile = *logFile
-	}
 
 	// TODO validate
 
 	return config
-}
-
-func setLog(logFile string) {
-	if "-" == logFile {
-		log.SetOutput(os.Stdout)
-	} else {
-		log_handler, err := os.OpenFile(logFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0777)
-		if err != nil {
-			panic("cannot write log")
-		}
-		log.SetOutput(log_handler)
-	}
-	log.SetFlags(5)
 }
 
 func startWebserver(port string) {
@@ -145,12 +125,10 @@ func addHandler(hook Hook) {
 var (
 	port       = flag.String("port", "", "port to listen on")
 	configFile = flag.String("config", "./config.json", "config")
-	logFile    = flag.String("log", "", "log file")
 )
 
 func main() {
 	config := loadConfig(configFile)
-	setLog(config.LogFile)
 	setupHooks(config.Hooks)
 	startWebserver(config.Port)
 }
