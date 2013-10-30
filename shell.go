@@ -1,31 +1,11 @@
 package main
 
 import (
-  "bufio"
 	"log"
-  "io"
+  "os"
 	"os/exec"
 	"time"
 )
-
-
-// make a goroutine and channel for reading lines from a pipe
-func readPipe(rawPipe io.Reader, _ error) (c chan string) {
-  pipe := bufio.NewReader(rawPipe)
-  c = make(chan string)
-
-  go func() {
-    for {
-      line, err := pipe.ReadString('\n')
-      if(err != nil) {
-        break
-      }
-      c <- line
-    }
-  }()
-
-  return c
-}
 
 
 func ExecuteShell(hook Hook, data GithubJson) {
@@ -41,8 +21,8 @@ func ExecuteShell(hook Hook, data GithubJson) {
 	cmd := exec.Command(hook.Shell, hook.Repo)
 	cmd.Env = []string{"PAYLOAD=" + data.OriginalPayload}
 
-  stderrc := readPipe(cmd.StderrPipe())
-  stdoutc := readPipe(cmd.StdoutPipe())
+  cmd.Stdout = os.Stdout
+  cmd.Stderr = os.Stderr
 
 	// start it
 	if err := cmd.Start(); err != nil {
@@ -60,35 +40,20 @@ func ExecuteShell(hook Hook, data GithubJson) {
 		donec <- cmd.Wait()
 	}()
 
-  looping := true
-  for {
-    // channel select
-    select {
-    case <-time.After(time.Duration(shellTimeout) * time.Second):
-      cmd.Process.Kill()
-      log.Printf("[%d] shell script timed out after %vs", pid, shellTimeout)
-      looping = false
 
-    case line := <-stderrc:
-      log.Printf("[%d] sh err: %s", pid, line)
-
-    case line := <-stdoutc:
-      log.Printf("[%d] sh out: %s", pid, line)
-
-    case waitErr := <-donec:
-      // waitErr implies that the script didn't end well
-      if waitErr != nil {
-        if msg, ok := waitErr.(*exec.ExitError); ok {
-          log.Printf("[%d] shell script error: %s", pid, msg)
-        } else { // some other kind of worse error
-          log.Fatal(waitErr)
-        }
+  // channel select
+  select {
+  case <-time.After(time.Duration(shellTimeout) * time.Second):
+    cmd.Process.Kill()
+    log.Printf("[%d] shell script timed out after %vs", pid, shellTimeout)
+  case waitErr := <-donec:
+    // waitErr implies that the script didn't end well
+    if waitErr != nil {
+      if msg, ok := waitErr.(*exec.ExitError); ok {
+        log.Printf("[%d] shell script error: %s", pid, msg)
+      } else { // some other kind of worse error
+        log.Fatal(waitErr)
       }
-      looping = false
-    }
-
-    if !looping {
-      break
     }
   }
 
