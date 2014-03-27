@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 )
 
 const DefaultShellTimeout uint = 600
@@ -17,13 +19,16 @@ type Repository struct {
 
 type GithubJson struct {
 	Repository      Repository
+	Name            string
 	Ref             string
+	Branch          string
 	OriginalPayload string
 }
 
 type Config struct {
-	Hooks   []Hook
 	Port    string
+	Hooks        []Hook
+	FallbackHook Hook
 }
 
 type Hook struct {
@@ -50,6 +55,16 @@ func loadConfig(configFile *string) Config {
 		log.Fatal(err)
 	}
 
+	for _, hook := range config.Hooks {
+		addHandler(hook, matchHook)
+	}
+
+	if config.FallbackHook.Branch != "" {
+		config.FallbackHook.Repo = ""
+		addHandler(config.FallbackHook, matchFallbackHook)
+	}
+}
+
 	// override from flags
 	if *port != "" {
 		config.Port = *port
@@ -65,10 +80,18 @@ func startWebserver(port string) {
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
+type hookMatcher func(data GithubJson, hook Hook) bool
+
 func matchHook(data GithubJson, hook Hook) bool {
 	fullBranch := "refs/heads/" + hook.Branch
 
 	return data.Repository.Name == hook.Repo && (hook.Branch == "*" || data.Ref == fullBranch)
+}
+
+func matchFallbackHook(data GithubJson, hook Hook) bool {
+	fullBranch := "refs/heads/" + hook.Branch
+
+	return (hook.Branch == "*" || data.Ref == fullBranch)
 }
 
 func matchGithubJson(a, b GithubJson) bool {
@@ -76,18 +99,18 @@ func matchGithubJson(a, b GithubJson) bool {
 	return a.Ref == b.Ref && a.Repository == b.Repository
 }
 
-func setupHooks(hooks []Hook) {
-	for _, hook := range hooks {
-		addHandler(hook)
-	}
-}
+func addHandler(hook Hook, matchHook hookMatcher) {
+	uri := "/"
 
-func addHandler(hook Hook) {
-	uri := "/" + hook.Repo
+	if hook.Repo != "" {
+		uri += hook.Repo
+	}
 
 	if hook.Token != "" {
 		uri += "/" + hook.Token
 	}
+
+	log.Println("adding handler at", uri)
 
 	// this channel gives a stream of unique jobs
 	// that is, if a job is submitted that matches a job already waiting in the queue
@@ -113,6 +136,8 @@ func addHandler(hook Hook) {
 		}
 
 		data.OriginalPayload = payload
+		data.Branch = strings.Replace(data.Ref, "refs/heads/", "", 1)
+		data.Name = data.Repository.Name
 
 		// the hook matched our criteria, put it on the queue
 		if matchHook(data, hook) {
