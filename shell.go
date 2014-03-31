@@ -49,6 +49,7 @@ func ExecuteShell(hook Hook, data GithubJson) {
 	select {
 	case <-time.After(time.Duration(shellTimeout) * time.Second):
 		cmd.Process.Kill()
+		<-donec // allow wait goroutine to exit
 		log.Printf("[%d] shell script timed out after %vs", pid, shellTimeout)
 	case waitErr := <-donec:
 		// waitErr implies that the script didn't end well

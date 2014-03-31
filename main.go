@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 )
 
@@ -26,7 +25,7 @@ type GithubJson struct {
 }
 
 type Config struct {
-	Port    string
+	Port         string
 	Hooks        []Hook
 	FallbackHook Hook
 }
@@ -41,7 +40,7 @@ type Hook struct {
 
 func loadConfig(configFile *string) Config {
 	config := Config{
-		Port:    DefaultPort,
+		Port: DefaultPort,
 	}
 
 	flag.Parse()
@@ -63,7 +62,6 @@ func loadConfig(configFile *string) Config {
 		config.FallbackHook.Repo = ""
 		addHandler(config.FallbackHook, matchFallbackHook)
 	}
-}
 
 	// override from flags
 	if *port != "" {
@@ -100,17 +98,18 @@ func matchGithubJson(a, b GithubJson) bool {
 }
 
 func addHandler(hook Hook, matchHook hookMatcher) {
-	uri := "/"
-
+	uriParts := []string{}
 	if hook.Repo != "" {
-		uri += hook.Repo
+		uriParts = append(uriParts, hook.Repo)
 	}
 
 	if hook.Token != "" {
-		uri += "/" + hook.Token
+		uriParts = append(uriParts, hook.Token)
 	}
 
-	log.Println("adding handler at", uri)
+	uri := "/" + strings.Join(uriParts, "/")
+
+	log.Println("adding hook handler at ", uri)
 
 	// this channel gives a stream of unique jobs
 	// that is, if a job is submitted that matches a job already waiting in the queue
@@ -128,6 +127,8 @@ func addHandler(hook Hook, matchHook hookMatcher) {
 
 	http.HandleFunc(uri, func(w http.ResponseWriter, r *http.Request) {
 		payload := r.FormValue("payload")
+
+		log.Println("ok")
 
 		var data GithubJson
 		err := json.Unmarshal([]byte(payload), &data)
@@ -154,6 +155,5 @@ var (
 
 func main() {
 	config := loadConfig(configFile)
-	setupHooks(config.Hooks)
 	startWebserver(config.Port)
 }
