@@ -16,7 +16,6 @@ func ExecuteShell(hook Hook, data GithubJson) {
 		shellTimeout = DefaultShellTimeout
 	}
 
-	log.Printf("ghj %#v", data)
 
 	// setup the command
 	cmd := exec.Command(hook.Shell, hook.Repo)
