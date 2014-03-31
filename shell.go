@@ -2,11 +2,10 @@ package main
 
 import (
 	"log"
-  "os"
+	"os"
 	"os/exec"
 	"time"
 )
-
 
 func ExecuteShell(hook Hook, data GithubJson) {
 	log.Printf("executing shell script %s\n", hook.Shell)
@@ -17,12 +16,18 @@ func ExecuteShell(hook Hook, data GithubJson) {
 		shellTimeout = DefaultShellTimeout
 	}
 
+	log.Printf("ghj %#v", data)
+
 	// setup the command
 	cmd := exec.Command(hook.Shell, hook.Repo)
-	cmd.Env = []string{"PAYLOAD=" + data.OriginalPayload}
+	cmd.Env = []string{
+		"PAYLOAD=" + data.OriginalPayload,
+		"BRANCH=" + data.Branch,
+		"REPO=" + data.Name,
+	}
 
-  cmd.Stdout = os.Stdout
-  cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	// start it
 	if err := cmd.Start(); err != nil {
@@ -30,9 +35,9 @@ func ExecuteShell(hook Hook, data GithubJson) {
 		return
 	}
 
-  pid := cmd.Process.Pid
+	pid := cmd.Process.Pid
 
-  log.Printf("[%d] started shell script", pid)
+	log.Printf("[%d] started shell script", pid)
 
 	// wait in a goroutine
 	donec := make(chan error, 1)
@@ -40,22 +45,21 @@ func ExecuteShell(hook Hook, data GithubJson) {
 		donec <- cmd.Wait()
 	}()
 
-
-  // channel select
-  select {
-  case <-time.After(time.Duration(shellTimeout) * time.Second):
-    cmd.Process.Kill()
-    log.Printf("[%d] shell script timed out after %vs", pid, shellTimeout)
-  case waitErr := <-donec:
-    // waitErr implies that the script didn't end well
-    if waitErr != nil {
-      if msg, ok := waitErr.(*exec.ExitError); ok {
-        log.Printf("[%d] shell script error: %s", pid, msg)
-      } else { // some other kind of worse error
-        log.Fatal(waitErr)
-      }
-    }
-  }
+	// channel select
+	select {
+	case <-time.After(time.Duration(shellTimeout) * time.Second):
+		cmd.Process.Kill()
+		log.Printf("[%d] shell script timed out after %vs", pid, shellTimeout)
+	case waitErr := <-donec:
+		// waitErr implies that the script didn't end well
+		if waitErr != nil {
+			if msg, ok := waitErr.(*exec.ExitError); ok {
+				log.Printf("[%d] shell script error: %s", pid, msg)
+			} else { // some other kind of worse error
+				log.Fatal(waitErr)
+			}
+		}
+	}
 
 	log.Printf("[%d] shell finished", pid)
 }
